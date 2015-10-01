@@ -1,6 +1,8 @@
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -14,10 +16,15 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
+import org.w3c.dom.DOMImplementation;
 import org.w3c.dom.Document;
+import org.w3c.dom.DocumentType;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
+import org.xml.sax.EntityResolver;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
 
 
 public class EscapeQuote {
@@ -40,19 +47,30 @@ public class EscapeQuote {
 		try {
 			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();;
 			DocumentBuilder builder = factory.newDocumentBuilder();
+			builder.setEntityResolver(new EntityResolver() {
+		        @Override
+		        public InputSource resolveEntity(String publicId, String systemId)
+		                throws SAXException, IOException {
+		            if (systemId.contains("asf_1_0.dtd")) {
+		                return new InputSource(new StringReader(""));
+		            } else {
+		                return null;
+		            }
+		        }
+		    });
 			
 			FileInputStream stream = new FileInputStream(inputFileName);
 			Document doc = builder.parse(stream, DEFAULT_ENCODING_REL);
 			NodeList valList = doc.getElementsByTagName("val");
 			Node parent = null;
-			if (valList.getLength() > 0) {
-				parent = valList.item(0).getParentNode();
-			}
 			for (int i=0; i < valList.getLength(); i++) {
+				parent = valList.item(i).getParentNode();
 				Node valNode = valList.item(i);
-				if (valNode.getFirstChild() != null) {
+				if (valNode != null && valNode.getFirstChild() != null && valNode.getNodeType() == Node.ELEMENT_NODE ) {
 					String val = nodeToString(valNode);
+					
 					if (hasSingleQuote(val)) {
+						
 						val = escapeSingleQuote(val);
 						change = true;
 						
@@ -61,23 +79,18 @@ public class EscapeQuote {
 						Document newDoc = builder.parse(new ByteArrayInputStream(temp.getBytes(DEFAULT_ENCODING_REL)));
 						Node root = newDoc.getDocumentElement();
 						Node newVal = doc.adoptNode(root.cloneNode(true));
-
 						if (((Element)valNode).hasAttribute("plat")) {
 							String plat = ((Element)valNode).getAttribute("plat");
 							((Element)newVal).setAttribute("plat", plat);
 							
 						}
-						if (((Element)valNode).hasAttribute("translate")) {
-							String translate = ((Element)valNode).getAttribute("translate");
-							((Element)newVal).setAttribute("translate", translate);
-							
+						
+						if (parent != null && newVal != null) {						
+							parent.replaceChild(newVal, valNode);
 						}
-						parent.replaceChild(newVal, valNode);
-						
-						
+	
 					}
-					
-					
+
 				}
 				
 			}
@@ -87,7 +100,13 @@ public class EscapeQuote {
 			    TransformerFactory tFactory = TransformerFactory.newInstance();
 			    tFactory.setAttribute("indent-number", 4);
 			    Transformer transformer = tFactory.newTransformer();		    
-			    transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+			    //transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+			    DOMImplementation domImpl = doc.getImplementation();
+			    DocumentType doctype = domImpl.createDocumentType("doctype",
+			        "",
+			        "http://ns.adobe.com/asf/asf_1_0.dtd");
+			    //transformer.setOutputProperty(OutputKeys.DOCTYPE_PUBLIC, doctype.getPublicId());
+			    transformer.setOutputProperty(OutputKeys.DOCTYPE_SYSTEM, doctype.getSystemId());			    
 			    doc.setXmlStandalone(true);
 			    DOMSource source = new DOMSource(doc);
 			    StreamResult result = new StreamResult(new FileOutputStream(outputFileName));
@@ -95,7 +114,7 @@ public class EscapeQuote {
 			}
 			
 		} catch (Exception e) {
-			System.out.println("error thrown." + e);
+			System.out.println("Error thrown from EscapeQuote." + e);
 		}
 
 	}
@@ -227,10 +246,6 @@ public class EscapeQuote {
 			}
 		}
 		return false;
-	}	
-	
-	class MyError extends Throwable {
-		
 	}
 
 }
